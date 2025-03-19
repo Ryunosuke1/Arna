@@ -1,623 +1,554 @@
+#!/usr/bin/env python3
 """
-LLM Service Module
+Arna - LLM Service
 
-このモジュールはOpenAI Compatible APIを使用したLLMとの連携機能を提供します。
-LLMConnector、PromptManager、ResponseParser、ContextManagerなどのコンポーネントを含みます。
+このモジュールはLLM（大規模言語モデル）サービスとの連携機能を提供します。
+OpenAI Compatible APIとの通信、効果的なプロンプトの生成、
+LLMレスポンスの解析などの機能を実装しています。
 """
 
-import os
 import json
-import time
-import requests
-from typing import Dict, List, Optional, Any, Union, Callable
 import logging
+import time
+from typing import Dict, List, Any, Optional, Union
+import requests
+from requests.exceptions import RequestException
 
-# ロギングの設定
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# ロガーの設定
 logger = logging.getLogger(__name__)
 
 
 class LLMConnector:
-    """OpenAI Compatible APIとの通信を管理するクラス"""
+    """OpenAI Compatible APIとの通信を行うクラス"""
     
-    def __init__(self, api_base_url: str = None, api_key: str = None):
+    def __init__(self, api_base_url: str, api_key: str, model: str = "gpt-4"):
         """
-        LLMConnectorの初期化
-        
-        Args:
-            api_base_url: API基本URL (オプション)
-            api_key: APIキー (オプション)
-        """
-        # 環境変数から設定を読み込む
-        self.api_base_url = api_base_url or os.environ.get("OPENAI_API_BASE", "https://api.openai.com/v1")
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
-        
-        if not self.api_key:
-            logger.warning("APIキーが設定されていません。環境変数OPENAI_API_KEYを設定するか、初期化時に指定してください。")
-        
-        self.default_model = os.environ.get("OPENAI_MODEL", "gpt-4")
-        self.session = requests.Session()
-        self.session.headers.update({
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        })
-    
-    def set_api_key(self, api_key: str) -> None:
-        """
-        APIキーを設定
-        
-        Args:
-            api_key: APIキー
-        """
-        self.api_key = api_key
-        self.session.headers.update({
-            "Authorization": f"Bearer {self.api_key}"
-        })
-    
-    def set_api_base_url(self, api_base_url: str) -> None:
-        """
-        API基本URLを設定
+        LLMConnectorを初期化します。
         
         Args:
             api_base_url: API基本URL
+            api_key: APIキー
+            model: 使用するモデル名
         """
-        self.api_base_url = api_base_url
+        self.api_base_url = api_base_url.rstrip('/')
+        self.api_key = api_key
+        self.model = model
+        self.headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
     
-    def chat_completion(self, 
-                        messages: List[Dict[str, str]], 
-                        model: str = None, 
-                        temperature: float = 0.7, 
-                        max_tokens: int = None,
-                        stream: bool = False,
-                        **kwargs) -> Dict[str, Any]:
+    def generate_completion(self, prompt: str, max_tokens: int = 1000, 
+                           temperature: float = 0.7, top_p: float = 1.0,
+                           stop: Optional[List[str]] = None) -> Dict[str, Any]:
         """
-        チャット補完APIを呼び出す
+        テキスト補完を生成します。
         
         Args:
-            messages: メッセージリスト
-            model: モデル名 (オプション)
-            temperature: 温度パラメータ (オプション)
-            max_tokens: 最大トークン数 (オプション)
-            stream: ストリーミングモード (オプション)
-            **kwargs: その他のパラメータ
+            prompt: 入力プロンプト
+            max_tokens: 生成する最大トークン数
+            temperature: 生成の多様性（0.0-1.0）
+            top_p: 核サンプリングの確率閾値
+            stop: 生成を停止する文字列のリスト
             
         Returns:
-            APIレスポンス
+            APIレスポンスの辞書
+            
+        Raises:
+            RequestException: API通信エラーの場合
         """
-        url = f"{self.api_base_url}/chat/completions"
+        endpoint = f"{self.api_base_url}/v1/completions"
         
         payload = {
-            "model": model or self.default_model,
-            "messages": messages,
+            "model": self.model,
+            "prompt": prompt,
+            "max_tokens": max_tokens,
             "temperature": temperature,
-            "stream": stream
+            "top_p": top_p
         }
         
-        if max_tokens:
-            payload["max_tokens"] = max_tokens
-        
-        # その他のパラメータを追加
-        for key, value in kwargs.items():
-            payload[key] = value
+        if stop:
+            payload["stop"] = stop
         
         try:
-            response = self.session.post(url, json=payload)
+            response = requests.post(endpoint, headers=self.headers, json=payload)
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"API呼び出し中にエラーが発生しました: {str(e)}")
-            if hasattr(e, 'response') and e.response:
-                logger.error(f"レスポンス: {e.response.text}")
+        except RequestException as e:
+            logger.error(f"API通信エラー: {str(e)}")
             raise
     
-    def streaming_chat_completion(self, 
-                                 messages: List[Dict[str, str]], 
-                                 model: str = None, 
-                                 temperature: float = 0.7, 
-                                 max_tokens: int = None,
-                                 callback: Callable[[str], None] = None,
-                                 **kwargs) -> str:
+    def generate_chat_completion(self, messages: List[Dict[str, str]], 
+                                max_tokens: int = 1000, temperature: float = 0.7,
+                                top_p: float = 1.0, stop: Optional[List[str]] = None) -> Dict[str, Any]:
         """
-        ストリーミングモードでチャット補完APIを呼び出す
+        チャット補完を生成します。
         
         Args:
-            messages: メッセージリスト
-            model: モデル名 (オプション)
-            temperature: 温度パラメータ (オプション)
-            max_tokens: 最大トークン数 (オプション)
-            callback: 各チャンクを受け取るコールバック関数 (オプション)
-            **kwargs: その他のパラメータ
+            messages: メッセージのリスト（各メッセージは"role"と"content"を含む辞書）
+            max_tokens: 生成する最大トークン数
+            temperature: 生成の多様性（0.0-1.0）
+            top_p: 核サンプリングの確率閾値
+            stop: 生成を停止する文字列のリスト
             
         Returns:
-            生成されたテキスト全体
+            APIレスポンスの辞書
+            
+        Raises:
+            RequestException: API通信エラーの場合
         """
-        url = f"{self.api_base_url}/chat/completions"
+        endpoint = f"{self.api_base_url}/v1/chat/completions"
         
         payload = {
-            "model": model or self.default_model,
+            "model": self.model,
             "messages": messages,
+            "max_tokens": max_tokens,
             "temperature": temperature,
-            "stream": True
+            "top_p": top_p
         }
         
-        if max_tokens:
-            payload["max_tokens"] = max_tokens
-        
-        # その他のパラメータを追加
-        for key, value in kwargs.items():
-            payload[key] = value
+        if stop:
+            payload["stop"] = stop
         
         try:
-            response = self.session.post(url, json=payload, stream=True)
+            response = requests.post(endpoint, headers=self.headers, json=payload)
             response.raise_for_status()
+            return response.json()
+        except RequestException as e:
+            logger.error(f"API通信エラー: {str(e)}")
+            raise
+    
+    def get_embedding(self, text: str) -> List[float]:
+        """
+        テキストの埋め込みベクトルを取得します。
+        
+        Args:
+            text: 埋め込みを取得するテキスト
             
-            full_text = ""
+        Returns:
+            埋め込みベクトル
             
-            for line in response.iter_lines():
-                if line:
-                    line = line.decode('utf-8')
-                    if line.startswith('data: ') and line != 'data: [DONE]':
-                        data = json.loads(line[6:])
-                        if 'choices' in data and len(data['choices']) > 0:
-                            delta = data['choices'][0].get('delta', {})
-                            if 'content' in delta:
-                                content = delta['content']
-                                full_text += content
-                                if callback:
-                                    callback(content)
-            
-            return full_text
-        except requests.exceptions.RequestException as e:
-            logger.error(f"ストリーミングAPI呼び出し中にエラーが発生しました: {str(e)}")
-            if hasattr(e, 'response') and e.response:
-                logger.error(f"レスポンス: {e.response.text}")
+        Raises:
+            RequestException: API通信エラーの場合
+        """
+        endpoint = f"{self.api_base_url}/v1/embeddings"
+        
+        payload = {
+            "model": "text-embedding-ada-002",  # 埋め込みモデル
+            "input": text
+        }
+        
+        try:
+            response = requests.post(endpoint, headers=self.headers, json=payload)
+            response.raise_for_status()
+            result = response.json()
+            return result["data"][0]["embedding"]
+        except (RequestException, KeyError) as e:
+            logger.error(f"埋め込み取得エラー: {str(e)}")
             raise
 
 
-class PromptManager:
-    """プロンプト生成と最適化を行うクラス"""
+class PromptGenerator:
+    """効果的なプロンプトの生成を行うクラス"""
     
-    def __init__(self, templates_dir: str = None):
-        """
-        PromptManagerの初期化
-        
-        Args:
-            templates_dir: テンプレートディレクトリ (オプション)
-        """
-        self.templates_dir = templates_dir or os.path.join(os.path.dirname(os.path.abspath(__file__)), "../templates/prompts")
-        self.templates: Dict[str, str] = {}
-        self.load_templates()
-    
-    def load_templates(self) -> None:
-        """テンプレートを読み込む"""
-        if not os.path.exists(self.templates_dir):
-            os.makedirs(self.templates_dir, exist_ok=True)
-            self._create_default_templates()
-        
-        for filename in os.listdir(self.templates_dir):
-            if filename.endswith(".txt"):
-                template_name = os.path.splitext(filename)[0]
-                with open(os.path.join(self.templates_dir, filename), 'r') as f:
-                    self.templates[template_name] = f.read()
-    
-    def _create_default_templates(self) -> None:
-        """デフォルトのテンプレートを作成"""
-        default_templates = {
-            "code_generation": "以下の要件に基づいてPythonコードを生成してください:\n\n{requirements}\n\n以下の制約を守ってください:\n{constraints}",
-            "code_review": "以下のコードをレビューし、改善点を指摘してください:\n\n```python\n{code}\n```",
-            "task_decomposition": "以下のタスクを小さなサブタスクに分解してください:\n\n{task}",
-            "error_analysis": "以下のエラーを分析し、解決策を提案してください:\n\n{error}"
+    def __init__(self):
+        """PromptGeneratorを初期化します。"""
+        self.templates: Dict[str, str] = {
+            "task_planning": """
+            タスク「{task_name}」の計画を立ててください。
+            
+            タスクの説明:
+            {task_description}
+            
+            複雑さレベル: {complexity_level}/5
+            
+            このタスクを完了するために必要なサブタスクのリストを作成してください。
+            各サブタスクには名前と説明を含めてください。
+            複雑さレベルに応じて、適切な詳細度でサブタスクを分割してください。
+            
+            出力形式:
+            [
+                {{"name": "サブタスク1の名前", "description": "サブタスク1の説明"}},
+                {{"name": "サブタスク2の名前", "description": "サブタスク2の説明"}},
+                ...
+            ]
+            """,
+            
+            "code_generation": """
+            以下の仕様に基づいて、Pythonコードを生成してください。
+            
+            機能名: {function_name}
+            
+            機能の説明:
+            {function_description}
+            
+            パラメータ:
+            {parameters}
+            
+            戻り値:
+            {returns}
+            
+            ロジック:
+            {logic}
+            
+            コードは完全に動作するものを生成し、適切なコメントを含めてください。
+            エラー処理も適切に実装してください。
+            
+            出力形式:
+            ```python
+            # コードをここに生成
+            ```
+            """,
+            
+            "code_review": """
+            以下のPythonコードをレビューしてください。
+            
+            ```python
+            {code}
+            ```
+            
+            以下の観点からレビューを行い、問題点と改善案を提示してください。
+            
+            1. 機能性: コードは仕様通りに動作するか
+            2. 可読性: コードは理解しやすいか
+            3. 保守性: コードは将来的な変更に対応しやすいか
+            4. エラー処理: 例外処理は適切か
+            5. パフォーマンス: 効率的な実装か
+            
+            出力形式:
+            {
+                "issues": [
+                    {"severity": "high/medium/low", "description": "問題の説明", "suggestion": "改善案"}
+                ],
+                "overall_assessment": "全体的な評価"
+            }
+            """,
+            
+            "test_generation": """
+            以下の関数に対するユニットテストを生成してください。
+            
+            ```python
+            {function_code}
+            ```
+            
+            テストは以下の条件を満たすようにしてください。
+            
+            1. pytestフレームワークを使用する
+            2. 正常系と異常系の両方をテストする
+            3. エッジケースも考慮する
+            4. モックを適切に使用する（必要な場合）
+            
+            出力形式:
+            ```python
+            # テストコードをここに生成
+            ```
+            """
         }
-        
-        for name, content in default_templates.items():
-            with open(os.path.join(self.templates_dir, f"{name}.txt"), 'w') as f:
-                f.write(content)
     
-    def get_template(self, template_name: str) -> Optional[str]:
+    def add_template(self, name: str, template: str) -> None:
         """
-        テンプレートを取得
+        新しいテンプレートを追加します。
         
         Args:
-            template_name: テンプレート名
-            
-        Returns:
-            テンプレート文字列、存在しない場合はNone
+            name: テンプレート名
+            template: テンプレート文字列
         """
-        return self.templates.get(template_name)
+        self.templates[name] = template
     
-    def format_prompt(self, template_name: str, **kwargs) -> str:
+    def generate_prompt(self, template_name: str, **kwargs) -> str:
         """
-        テンプレートを使用してプロンプトをフォーマット
+        指定されたテンプレートを使用してプロンプトを生成します。
         
         Args:
-            template_name: テンプレート名
-            **kwargs: テンプレート変数
+            template_name: 使用するテンプレート名
+            **kwargs: テンプレートに埋め込む変数
             
         Returns:
-            フォーマットされたプロンプト
+            生成されたプロンプト
+            
+        Raises:
+            ValueError: テンプレートが見つからない場合
         """
-        template = self.get_template(template_name)
-        if not template:
+        if template_name not in self.templates:
             raise ValueError(f"テンプレート '{template_name}' が見つかりません")
         
+        template = self.templates[template_name]
         return template.format(**kwargs)
     
-    def create_chat_messages(self, system_prompt: str, user_prompt: str, 
-                            assistant_messages: List[str] = None,
-                            user_messages: List[str] = None) -> List[Dict[str, str]]:
+    def generate_custom_prompt(self, base_prompt: str, **kwargs) -> str:
         """
-        チャットメッセージを作成
+        カスタムプロンプトを生成します。
         
         Args:
-            system_prompt: システムプロンプト
-            user_prompt: ユーザープロンプト
-            assistant_messages: アシスタントメッセージリスト (オプション)
-            user_messages: ユーザーメッセージリスト (オプション)
+            base_prompt: 基本プロンプト
+            **kwargs: プロンプトに埋め込む変数
             
         Returns:
-            チャットメッセージリスト
+            生成されたプロンプト
         """
-        messages = [
-            {"role": "system", "content": system_prompt}
-        ]
-        
-        # 過去のメッセージがある場合は追加
-        if user_messages and assistant_messages:
-            for user_msg, assistant_msg in zip(user_messages, assistant_messages):
-                messages.append({"role": "user", "content": user_msg})
-                messages.append({"role": "assistant", "content": assistant_msg})
-        
-        # 最新のユーザーメッセージを追加
-        messages.append({"role": "user", "content": user_prompt})
-        
-        return messages
+        return base_prompt.format(**kwargs)
 
 
 class ResponseParser:
-    """LLMの応答を解析するクラス"""
+    """LLMレスポンスの解析を行うクラス"""
     
-    def extract_code(self, text: str) -> List[Dict[str, str]]:
+    @staticmethod
+    def extract_text(response: Dict[str, Any]) -> str:
         """
-        テキストからコードブロックを抽出
+        APIレスポンスからテキストを抽出します。
         
         Args:
-            text: 抽出元テキスト
+            response: APIレスポンスの辞書
             
         Returns:
-            言語とコードのペアのリスト
-        """
-        import re
-        
-        # コードブロックを抽出するための正規表現
-        pattern = r"```(\w*)\n(.*?)```"
-        matches = re.finditer(pattern, text, re.DOTALL)
-        
-        code_blocks = []
-        for match in matches:
-            language = match.group(1) or "text"
-            code = match.group(2)
-            code_blocks.append({
-                "language": language,
-                "code": code
-            })
-        
-        return code_blocks
-    
-    def extract_json(self, text: str) -> Optional[Dict[str, Any]]:
-        """
-        テキストからJSONを抽出
-        
-        Args:
-            text: 抽出元テキスト
+            抽出されたテキスト
             
-        Returns:
-            抽出されたJSON、抽出できない場合はNone
+        Raises:
+            ValueError: レスポンス形式が不正な場合
         """
-        import re
-        import json
-        
-        # JSONブロックを抽出するための正規表現
-        pattern = r"```json\n(.*?)```"
-        match = re.search(pattern, text, re.DOTALL)
-        
-        if match:
-            try:
-                return json.loads(match.group(1))
-            except json.JSONDecodeError:
-                logger.error("JSONの解析に失敗しました")
-                return None
-        
-        # JSONブロックが見つからない場合は、テキスト全体をJSONとして解析を試みる
         try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            logger.error("テキスト全体のJSON解析に失敗しました")
-            return None
+            # チャット補完の場合
+            if "choices" in response and len(response["choices"]) > 0:
+                if "message" in response["choices"][0]:
+                    return response["choices"][0]["message"]["content"]
+                elif "text" in response["choices"][0]:
+                    return response["choices"][0]["text"]
+            
+            raise ValueError("レスポンスから有効なテキストを抽出できません")
+        except (KeyError, IndexError) as e:
+            logger.error(f"テキスト抽出エラー: {str(e)}")
+            raise ValueError(f"レスポンス形式が不正です: {str(e)}")
     
-    def extract_list(self, text: str) -> List[str]:
+    @staticmethod
+    def parse_json(text: str) -> Any:
         """
-        テキストからリストを抽出
+        テキストからJSONを解析します。
         
         Args:
-            text: 抽出元テキスト
+            text: 解析するテキスト
             
         Returns:
-            抽出されたリスト
+            解析されたJSONオブジェクト
+            
+        Raises:
+            json.JSONDecodeError: JSON解析エラーの場合
         """
-        import re
+        # コードブロックからJSONを抽出
+        json_text = text
+        if "```json" in text:
+            parts = text.split("```json")
+            if len(parts) > 1:
+                json_text = parts[1].split("```")[0].strip()
+        elif "```" in text:
+            parts = text.split("```")
+            if len(parts) > 1:
+                json_text = parts[1].strip()
         
-        # 箇条書きを抽出するための正規表現
-        pattern = r"(?:^|\n)[-*]\s+(.*?)(?=\n[-*]|\n\n|$)"
-        matches = re.finditer(pattern, text, re.DOTALL)
-        
-        items = []
-        for match in matches:
-            items.append(match.group(1).strip())
-        
-        return items
-
-
-class ContextManager:
-    """コンテキスト情報を管理するクラス"""
+        try:
+            return json.loads(json_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON解析エラー: {str(e)}")
+            raise
     
-    def __init__(self, max_context_length: int = 10):
+    @staticmethod
+    def extract_code(text: str, language: str = "python") -> str:
         """
-        ContextManagerの初期化
+        テキストからコードを抽出します。
         
         Args:
-            max_context_length: 最大コンテキスト長
-        """
-        self.conversation_history: List[Dict[str, str]] = []
-        self.max_context_length = max_context_length
-    
-    def add_message(self, role: str, content: str) -> None:
-        """
-        メッセージを追加
-        
-        Args:
-            role: ロール ("system", "user", "assistant")
-            content: メッセージ内容
-        """
-        self.conversation_history.append({
-            "role": role,
-            "content": content,
-            "timestamp": time.time()
-        })
-        
-        # 最大長を超えた場合は古いメッセージを削除
-        if len(self.conversation_history) > self.max_context_length:
-            # システムメッセージは保持
-            system_messages = [msg for msg in self.conversation_history if msg["role"] == "system"]
-            other_messages = [msg for msg in self.conversation_history if msg["role"] != "system"]
+            text: 抽出元のテキスト
+            language: コードの言語
             
-            # 古いメッセージから削除
-            other_messages = other_messages[-(self.max_context_length - len(system_messages)):]
-            
-            self.conversation_history = system_messages + other_messages
-    
-    def get_conversation_messages(self) -> List[Dict[str, str]]:
-        """
-        会話メッセージを取得
-        
         Returns:
-            会話メッセージリスト
+            抽出されたコード
         """
-        return [{"role": msg["role"], "content": msg["content"]} 
-                for msg in self.conversation_history]
-    
-    def clear_conversation(self, keep_system: bool = True) -> None:
-        """
-        会話履歴をクリア
+        code_marker = f"```{language}"
+        if code_marker in text:
+            parts = text.split(code_marker)
+            if len(parts) > 1:
+                code = parts[1].split("```")[0].strip()
+                return code
         
-        Args:
-            keep_system: システムメッセージを保持するかどうか
-        """
-        if keep_system:
-            self.conversation_history = [msg for msg in self.conversation_history if msg["role"] == "system"]
-        else:
-            self.conversation_history = []
-    
-    def save_conversation(self, file_path: str) -> None:
-        """
-        会話履歴を保存
-        
-        Args:
-            file_path: 保存先ファイルパス
-        """
-        with open(file_path, 'w') as f:
-            json.dump(self.conversation_history, f, indent=2)
-    
-    def load_conversation(self, file_path: str) -> None:
-        """
-        会話履歴を読み込み
-        
-        Args:
-            file_path: 読み込むファイルパス
-        """
-        with open(file_path, 'r') as f:
-            self.conversation_history = json.load(f)
+        # コードブロックが見つからない場合は、テキスト全体を返す
+        return text
 
 
 class LLMService:
-    """LLMサービスの統合クラス"""
+    """LLMサービスの主要機能を提供するクラス"""
     
-    def __init__(self, api_base_url: str = None, api_key: str = None):
+    def __init__(self, api_base_url: str, api_key: str, model: str = "gpt-4"):
         """
-        LLMServiceの初期化
+        LLMServiceを初期化します。
         
         Args:
-            api_base_url: API基本URL (オプション)
-            api_key: APIキー (オプション)
+            api_base_url: API基本URL
+            api_key: APIキー
+            model: 使用するモデル名
         """
-        self.connector = LLMConnector(api_base_url, api_key)
-        self.prompt_manager = PromptManager()
+        self.connector = LLMConnector(api_base_url, api_key, model)
+        self.prompt_generator = PromptGenerator()
         self.response_parser = ResponseParser()
-        self.context_manager = ContextManager()
+        self.conversation_history: List[Dict[str, str]] = []
+        self.max_history_length = 10
     
-    def generate_code(self, requirements: str, constraints: str = "") -> List[Dict[str, str]]:
+    def generate_text(self, prompt: str, max_tokens: int = 1000, 
+                     temperature: float = 0.7) -> str:
         """
-        コードを生成
+        テキストを生成します。
         
         Args:
-            requirements: 要件
-            constraints: 制約 (オプション)
+            prompt: 入力プロンプト
+            max_tokens: 生成する最大トークン数
+            temperature: 生成の多様性（0.0-1.0）
             
         Returns:
-            生成されたコードブロックのリスト
+            生成されたテキスト
         """
-        prompt = self.prompt_manager.format_prompt(
-            "code_generation",
-            requirements=requirements,
-            constraints=constraints
-        )
-        
-        messages = self.prompt_manager.create_chat_messages(
-            system_prompt="あなたは優秀なプログラマーです。要件に基づいて高品質なコードを生成してください。",
-            user_prompt=prompt
-        )
-        
-        response = self.connector.chat_completion(messages)
-        content = response["choices"][0]["message"]["content"]
-        
-        self.context_manager.add_message("user", prompt)
-        self.context_manager.add_message("assistant", content)
-        
-        return self.response_parser.extract_code(content)
+        try:
+            response = self.connector.generate_completion(
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            return self.response_parser.extract_text(response)
+        except Exception as e:
+            logger.error(f"テキスト生成エラー: {str(e)}")
+            return f"エラーが発生しました: {str(e)}"
     
-    def review_code(self, code: str) -> str:
+    def generate_chat_response(self, user_message: str, system_message: str = None,
+                              max_tokens: int = 1000, temperature: float = 0.7) -> str:
         """
-        コードをレビュー
+        チャットレスポンスを生成します。
+        
+        Args:
+            user_message: ユーザーメッセージ
+            system_message: システムメッセージ（省略可）
+            max_tokens: 生成する最大トークン数
+            temperature: 生成の多様性（0.0-1.0）
+            
+        Returns:
+            生成されたレスポンス
+        """
+        messages = []
+        
+        # システムメッセージがある場合は追加
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        
+        # 会話履歴を追加
+        messages.extend(self.conversation_history)
+        
+        # ユーザーメッセージを追加
+        messages.append({"role": "user", "content": user_message})
+        
+        try:
+            response = self.connector.generate_chat_completion(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            
+            # レスポンスからテキストを抽出
+            response_text = self.response_parser.extract_text(response)
+            
+            # 会話履歴を更新
+            self.conversation_history.append({"role": "user", "content": user_message})
+            self.conversation_history.append({"role": "assistant", "content": response_text})
+            
+            # 履歴が長すぎる場合は古いものを削除
+            while len(self.conversation_history) > self.max_history_length * 2:
+                self.conversation_history.pop(0)
+                self.conversation_history.pop(0)
+            
+            return response_text
+        except Exception as e:
+            logger.error(f"チャットレスポンス生成エラー: {str(e)}")
+            return f"エラーが発生しました: {str(e)}"
+    
+    def clear_conversation_history(self) -> None:
+        """会話履歴をクリアします。"""
+        self.conversation_history.clear()
+    
+    def generate_code(self, function_name: str, function_description: str,
+                     parameters: str, returns: str, logic: str) -> str:
+        """
+        コードを生成します。
+        
+        Args:
+            function_name: 関数名
+            function_description: 関数の説明
+            parameters: パラメータの説明
+            returns: 戻り値の説明
+            logic: ロジックの説明
+            
+        Returns:
+            生成されたコード
+        """
+        prompt = self.prompt_generator.generate_prompt(
+            "code_generation",
+            function_name=function_name,
+            function_description=function_description,
+            parameters=parameters,
+            returns=returns,
+            logic=logic
+        )
+        
+        response = self.generate_text(prompt, max_tokens=2000, temperature=0.2)
+        return self.response_parser.extract_code(response)
+    
+    def review_code(self, code: str) -> Dict[str, Any]:
+        """
+        コードをレビューします。
         
         Args:
             code: レビュー対象のコード
             
         Returns:
-            レビュー結果
+            レビュー結果の辞書
         """
-        prompt = self.prompt_manager.format_prompt(
+        prompt = self.prompt_generator.generate_prompt(
             "code_review",
             code=code
         )
         
-        messages = self.prompt_manager.create_chat_messages(
-            system_prompt="あなたは経験豊富なコードレビュアーです。コードの問題点や改善点を指摘してください。",
-            user_prompt=prompt
-        )
+        response = self.generate_text(prompt, max_tokens=2000, temperature=0.3)
         
-        response = self.connector.chat_completion(messages)
-        content = response["choices"][0]["message"]["content"]
-        
-        self.context_manager.add_message("user", prompt)
-        self.context_manager.add_message("assistant", content)
-        
-        return content
+        try:
+            return self.response_parser.parse_json(response)
+        except json.JSONDecodeError:
+            # JSON解析に失敗した場合は、テキストをそのまま返す
+            return {"text": response}
     
-    def decompose_task(self, task: str) -> List[str]:
+    def generate_tests(self, function_code: str) -> str:
         """
-        タスクを分解
+        テストコードを生成します。
         
         Args:
-            task: 分解対象のタスク
+            function_code: テスト対象の関数コード
             
         Returns:
-            分解されたサブタスクのリスト
+            生成されたテストコード
         """
-        prompt = self.prompt_manager.format_prompt(
-            "task_decomposition",
-            task=task
+        prompt = self.prompt_generator.generate_prompt(
+            "test_generation",
+            function_code=function_code
         )
         
-        messages = self.prompt_manager.create_chat_messages(
-            system_prompt="あなたは優れたタスク管理の専門家です。複雑なタスクを小さな実行可能なサブタスクに分解してください。",
-            user_prompt=prompt
-        )
-        
-        response = self.connector.chat_completion(messages)
-        content = response["choices"][0]["message"]["content"]
-        
-        self.context_manager.add_message("user", prompt)
-        self.context_manager.add_message("assistant", content)
-        
-        return self.response_parser.extract_list(content)
+        response = self.generate_text(prompt, max_tokens=2000, temperature=0.2)
+        return self.response_parser.extract_code(response)
     
-    def analyze_error(self, error: str) -> str:
+    def parse_json_response(self, text: str) -> Any:
         """
-        エラーを分析
+        テキストからJSONを解析します。
         
         Args:
-            error: 分析対象のエラー
+            text: 解析するテキスト
             
         Returns:
-            分析結果
+            解析されたJSONオブジェクト
         """
-        prompt = self.prompt_manager.format_prompt(
-            "error_analysis",
-            error=error
-        )
-        
-        messages = self.prompt_manager.create_chat_messages(
-            system_prompt="あなたはデバッグの専門家です。エラーメッセージを分析し、問題の原因と解決策を提案してください。",
-            user_prompt=prompt
-        )
-        
-        response = self.connector.chat_completion(messages)
-        content = response["choices"][0]["message"]["content"]
-        
-        self.context_manager.add_message("user", prompt)
-        self.context_manager.add_message("assistant", content)
-        
-        return content
-    
-    def chat(self, message: str, system_prompt: str = None) -> str:
-        """
-        チャット
-        
-        Args:
-            message: ユーザーメッセージ
-            system_prompt: システムプロンプト (オプション)
-            
-        Returns:
-            アシスタントの応答
-        """
-        if system_prompt:
-            # 新しいシステムプロンプトが提供された場合は会話をリセット
-            self.context_manager.clear_conversation()
-            self.context_manager.add_message("system", system_prompt)
-        
-        self.context_manager.add_message("user", message)
-        
-        messages = self.context_manager.get_conversation_messages()
-        
-        response = self.connector.chat_completion(messages)
-        content = response["choices"][0]["message"]["content"]
-        
-        self.context_manager.add_message("assistant", content)
-        
-        return content
-    
-    def streaming_chat(self, message: str, callback: Callable[[str], None], system_prompt: str = None) -> str:
-        """
-        ストリーミングチャット
-        
-        Args:
-            message: ユーザーメッセージ
-            callback: 各チャンクを受け取るコールバック関数
-            system_prompt: システムプロンプト (オプション)
-            
-        Returns:
-            アシスタントの応答全体
-        """
-        if system_prompt:
-            # 新しいシステムプロンプトが提供された場合は会話をリセット
-            self.context_manager.clear_conversation()
-            self.context_manager.add_message("system", system_prompt)
-        
-        self.context_manager.add_message("user", message)
-        
-        messages = self.context_manager.get_conversation_messages()
-        
-        content = self.connector.streaming_chat_completion(messages, callback=callback)
-        
-        self.context_manager.add_message("assistant", content)
-        
-        return content
+        try:
+            return self.response_parser.parse_json(text)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON解析エラー: {str(e)}")
+            return None
