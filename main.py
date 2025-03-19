@@ -7,11 +7,11 @@ Manus Agent - メインエントリーポイント
 
 import os
 import sys
-from src.ui.main_app import ManusAgentApp
+from src.ui.kivy_application import ArnaApp
 
 if __name__ == "__main__":
     # アプリケーションのルートディレクトリをPythonパスに追加
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     
     # アプリケーションを起動
-    ManusAgentApp().run()
+    ArnaApp().run()

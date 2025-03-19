@@ -10,6 +10,11 @@ from kivy.core.text import LabelBase
 from kivy.core.window import Window
 from kivy.utils import get_color_from_hex
 from kivy.metrics import dp, sp
+from kivy.core.text import LabelBase, DEFAULT_FONT
+from kivy.resources import resource_add_path
+from kivy.utils import platform
+import os
+
 
 # スウェーデン風ミニマリズムのカラーパレット
 class SwedishMinimalistColors:
@@ -91,20 +96,22 @@ class SwedishMinimalistTheme:
         """テーマをアプリケーションに適用します"""
         # ウィンドウの背景色を設定
         Window.clearcolor = cls.colors.OFF_WHITE
+        font_path = os.path.join(os.path.dirname(__file__))
+        resource_add_path(font_path)
         
         # フォントの登録
         # 注: 実際のアプリケーションでは、フォントファイルが存在することを確認してください
         try:
             LabelBase.register(name=cls.FONT_FAMILY_REGULAR, 
-                              fn_regular="data/fonts/Roboto-Regular.ttf")
+                              fn_regular="fonts/Roboto-Black.ttf")
             LabelBase.register(name=cls.FONT_FAMILY_LIGHT, 
-                              fn_regular="data/fonts/Roboto-Light.ttf")
+                              fn_regular="fonts/Roboto-Light.ttf")
             LabelBase.register(name=cls.FONT_FAMILY_MEDIUM, 
-                              fn_regular="data/fonts/Roboto-Medium.ttf")
+                              fn_regular="fonts/Roboto-Medium.ttf")
             LabelBase.register(name=cls.FONT_FAMILY_BOLD, 
-                              fn_regular="data/fonts/Roboto-Bold.ttf")
+                              fn_regular="fonts/Roboto-Bold.ttf")
             LabelBase.register(name=cls.FONT_FAMILY_MONO, 
-                              fn_regular="data/fonts/RobotoMono-Regular.ttf")
+                              fn_regular="fonts/RobotoMono-VariableFont_wght.ttf")
         except Exception as e:
             print(f"フォント登録エラー: {e}")
             print("デフォルトフォントを使用します")
