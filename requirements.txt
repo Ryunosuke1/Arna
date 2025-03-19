@@ -1,6 +1,19 @@
-autogen-agentchat
-sympy
-aiohttp
-beautifulsoup4
-pyyaml
-flet
+# Manus Agent 依存パッケージ
+# Python 3.13.2用
+
+# 基本依存関係
+kivy>=2.0.0
+kivymd>=1.0.0
+pyyaml>=6.0
+jinja2>=3.0.0
+requests>=2.25.0
+pygments>=2.10.0
+
+# テスト用
+pytest>=6.0.0
+
+# 開発ツール
+black>=23.1.0
+isort>=5.12.0
+mypy>=1.0.0
+flake8>=6.0.0

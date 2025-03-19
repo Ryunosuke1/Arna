@@ -1,41 +1,53 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "arna"
+name = "manus_agent"
 version = "0.1.0"
-description = ""
-readme = "README.md"
-requires-python = ">=3.9"
+description = "metagptベースのDevinのような複雑なソフトウェア開発能力を持つ汎用Agent"
 authors = [
-    { name = "Flet developer", email = "you@example.com" }
+    {name = "Manus Team"}
+]
+readme = "README.md"
+requires-python = ">=3.13.2"
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
 ]
 dependencies = [
-  "flet==0.27.5"
+    "kivy>=2.0.0",
+    "kivymd>=1.0.0",
+    "pyyaml>=6.0",
+    "jinja2>=3.0.0",
+    "requests>=2.25.0",
+    "pygments>=2.10.0",
+    "pytest>=6.0.0",
 ]
 
-[tool.flet]
-# org name in reverse domain name notation, e.g. "com.mycompany".
-# Combined with project.name to build bundle ID for iOS and Android apps
-org = "com.mycompany"
+[project.scripts]
+manus_agent = "main:main"
 
-# project display name that is used as an app title on Android and iOS home screens,
-# shown in window titles and about app dialogs on desktop.
-product = "arna"
+[tool.setuptools]
+package-dir = {"" = "src"}
 
-# company name to display in about app dialogs
-company = "Flet"
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
-# copyright text to display in about app dialogs
-copyright = "Copyright (C) 2025 by Flet"
+[tool.black]
+line-length = 88
+target-version = ["py313"]
 
-[tool.flet.app]
-path = "src"
+[tool.isort]
+profile = "black"
+line_length = 88
 
-[tool.uv]
-dev-dependencies = [
-    "flet[all]==0.27.5",
-]
-
-[tool.poetry]
-package-mode = false
-
-[tool.poetry.group.dev.dependencies]
-flet = {extras = ["all"], version = "0.27.5"}
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
