@@ -1,0 +1,32 @@
+'''
+{{ project.name }}
+
+{{ project.description }}
+'''
+
+{% for item in project.code_structure %}
+{% if 'function' in item %}
+def {{ item.function.name }}({% for param in item.function.parameters %}{{ param.name }}{% if not loop.last %}, {% endif %}{% endfor %}):
+    '''
+    {{ item.function.description }}
+    
+    {% if item.function.parameters %}
+    Args:
+        {% for param in item.function.parameters %}
+        {{ param.name }}: {{ param.description }}
+        {% endfor %}
+    {% endif %}
+    {% if item.function.returns.description %}
+    Returns:
+        {{ item.function.returns.description }}
+    {% endif %}
+    '''
+    # {{ item.function.logic.description }}
+    pass
+
+{% endif %}
+{% endfor %}
+
+if __name__ == "__main__":
+    # Main execution
+    pass
